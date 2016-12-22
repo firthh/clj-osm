@@ -4,54 +4,66 @@
             [clojure.zip :as zip]
             [clojure.java.io :as io]))
 
-(defn- get-node-type [node-type zipped]
-  (->> zipped
-       first
-       :content
-       (filter #(= node-type (:tag %)))))
-
 (defn- tags->map [nodes]
   (->> nodes
        (filter #(= :tag (:tag %)))
        (map (fn [{:keys [attrs]}] [(:k attrs) (:v attrs)]))
        (into {})))
 
-(defn- transform-xml-node [node]
-  {:id (get-in node [:attrs :id])
+(defmulti parse-xml-node :tag)
+
+(defmethod parse-xml-node :node [node]
+  {:type :node
+   :id (get-in node [:attrs :id])
    :lon (BigDecimal. (get-in node [:attrs :lon]))
    :lat (BigDecimal. (get-in node [:attrs :lat]))})
 
-(defn- transform-xml-way [node]
-  {:id (get-in node [:attrs :id])
+(defmethod parse-xml-node :way [node]
+  {:type :way
+   :id (get-in node [:attrs :id])
    :nodes (->> (:content node)
                (filter #(= :nd (:tag %)))
                (map #(get-in % [:attrs :ref]) ))
    :tags (tags->map (:content node))})
 
-(defn- get-nodes [zipped]
-  (->> zipped
-       (get-node-type :node)
-       (map transform-xml-node)
-       (map (fn [e] [(:id e) e]))
-       (into {})))
+(defmethod parse-xml-node :relation [node]
+  {:type :relation
+   :id (get-in node [:attrs :id])
+   :members (->> (:content node)
+                 (filter #(= :member (:tag %)))
+                 (map :attrs)
+                 (map #(select-keys % [:type :ref :role]) ))
+   :tags (tags->map (:content node))})
 
-(defn- get-waypoints [zipped]
+(defmethod parse-xml-node :bounds [node]
+  ;;  <bounds minlat="51.5131300" minlon="-0.1007000" maxlat="51.5146100" maxlon="-0.0964900"/>
+  {:type :bounds
+   :min-lat (get-in node [:attrs :minlat])
+   :min-lon (get-in node [:attrs :minlon])
+   :max-lat (get-in node [:attrs :maxlat])
+   :max-lon (get-in node [:attrs :maxlon])})
+
+(defn into-map [[k v]]
+  [k (->> v
+          (map (fn [e] [(:id e) e]))
+          (into {}))])
+
+(defn parse-xml-nodes [zipped]
   (->> zipped
-       (get-node-type :way)
-       (map transform-xml-way)))
+       first
+       :content
+       (map parse-xml-node)
+       (group-by :type)
+       (map into-map)
+       (into {})))
 
 (defn- lookup-nodes [nodes way]
   (update way :nodes #(map (partial get nodes) %)))
 
-
-
-(defn osm-file->all-data [filename]
-  (let [zipped (-> filename xml/parse zip/xml-zip)]
-    {:nodes (get-nodes zipped)
-     :ways (get-waypoints zipped)}))
-
 (defn osm-file->waypoints [filename]
-  (let [zipped (-> filename xml/parse zip/xml-zip)
-        nodes (get-nodes zipped)]
-    (->> (get-waypoints zipped)
-         (map (partial lookup-nodes nodes)))))
+  (let [{:keys [node way]} (-> filename xml/parse zip/xml-zip parse-xml-nodes)]
+    (map (fn [[k v]] (lookup-nodes node v)) way)))
+
+(defn osm-file->data [filename]
+  (-> filename xml/parse zip/xml-zip parse-xml-nodes))
+
