@@ -43,27 +43,25 @@
    :max-lat (get-in node [:attrs :maxlat])
    :max-lon (get-in node [:attrs :maxlon])})
 
-(defn into-map [[k v]]
-  [k (->> v
-          (map (fn [e] [(:id e) e]))
-          (into {}))])
+(defn into-map [v]
+  (->> v
+       (map (fn [e] [(:id e) e]))
+       (into {})))
 
 (defn parse-xml-nodes [zipped]
   (->> zipped
        first
        :content
        (map parse-xml-node)
-       (group-by :type)
-       (map into-map)
-       (into {})))
+       (group-by :type)))
 
 (defn- lookup-nodes [nodes way]
   (update way :nodes #(map (partial get nodes) %)))
 
 (defn osm-file->waypoints [filename]
-  (let [{:keys [node way]} (-> filename xml/parse zip/xml-zip parse-xml-nodes)]
-    (map (fn [[k v]] (lookup-nodes node v)) way)))
+  (let [{:keys [node way]} (-> filename xml/parse zip/xml-zip parse-xml-nodes)
+        node-map (into-map node)]
+    (map (partial lookup-nodes node-map) way)))
 
 (defn osm-file->data [filename]
   (-> filename xml/parse zip/xml-zip parse-xml-nodes))
-
