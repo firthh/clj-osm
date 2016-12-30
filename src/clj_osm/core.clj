@@ -1,4 +1,4 @@
-(ns osm-map.core
+(ns clj-osm.core
   (:use [clojure.data.zip.xml :only (attr text xml->)])
   (:require [clojure.xml :as xml]
             [clojure.zip :as zip]
